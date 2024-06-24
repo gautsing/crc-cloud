@@ -25,6 +25,8 @@ type createRequest struct {
 	bootingPrivateKeyFilePath string
 	ocpPullSecretFilePath     string
 	networkName               string
+	instanceName              string
+	instancePassword          string
 }
 
 func fillCreateRequest(projectName, bootingPrivateKeyFilePath, ocpPullSecretFilePath string,
@@ -37,6 +39,15 @@ func fillCreateRequest(projectName, bootingPrivateKeyFilePath, ocpPullSecretFile
 	if !ok {
 		return nil, fmt.Errorf("openstack-network-name not found")
 	}
+	instanceNameValue, ok := args[instanceName]
+	if !ok {
+		return nil, fmt.Errorf("instance-name not found")
+	}
+	instancePasswordValue, ok := args[instancePassword]
+	if !ok {
+		return nil, fmt.Errorf("instance-password not found")
+	}
+
 	it := ocpInstanceType
 	if customInstanceType, ok := args[instanceType]; ok {
 		it = customInstanceType
@@ -56,7 +67,10 @@ func fillCreateRequest(projectName, bootingPrivateKeyFilePath, ocpPullSecretFile
 		diskSize:                  ds,
 		bootingPrivateKeyFilePath: bootingPrivateKeyFilePath,
 		ocpPullSecretFilePath:     ocpPullSecretFilePath,
-		networkName:               networkNameValue}, nil
+		networkName:               networkNameValue,
+		instanceName:              instanceNameValue,
+		instancePassword:          instancePasswordValue,
+	}, nil
 }
 
 func (r createRequest) runFunc(ctx *pulumi.Context) error {
@@ -85,7 +99,7 @@ func (r createRequest) runFunc(ctx *pulumi.Context) error {
 
 	// Iterate over the ports and create a security group rule for each
 	for _, port := range ports {
-		_, err := networking.NewSecGroupRule(ctx, fmt.Sprintf("secgroupRule%d", port), &networking.SecGroupRuleArgs{
+		_, err := networking.NewSecGroupRule(ctx, fmt.Sprintf("sgr-%s-%d", r.instanceName, port), &networking.SecGroupRuleArgs{
 			Direction:       pulumi.String("ingress"),
 			Ethertype:       pulumi.String("IPv4"),
 			SecurityGroupId: secGroup.ID(),
@@ -104,7 +118,8 @@ func (r createRequest) runFunc(ctx *pulumi.Context) error {
 		return err
 	}
 
-	vol, err := blockstorage.NewVolume(ctx, "myVolume", &blockstorage.VolumeArgs{
+	volName := instanceName + "-volume"
+	vol, err := blockstorage.NewVolume(ctx, volName, &blockstorage.VolumeArgs{
 		Size:             pulumi.Int(r.diskSize), // Size of the volume in GB
 		AvailabilityZone: pulumi.String("nova"),  // The Availability Zone in which to create the volume
 		ImageId:          pulumi.String(imageRef.Id),
@@ -133,6 +148,7 @@ func (r createRequest) runFunc(ctx *pulumi.Context) error {
 				DeleteOnTermination: pulumi.Bool(true),
 			},
 		},
+		Name: pulumi.String(instanceName),
 	}
 
 	instance, err := compute.NewInstance(ctx, r.projectName, &args, pulumi.DependsOn([]pulumi.Resource{secGroup}))
@@ -142,11 +158,15 @@ func (r createRequest) runFunc(ctx *pulumi.Context) error {
 
 	internalIP := instance.AccessIpV4
 	publicIP := internalIP
-
-	password, err := util.CreatePassword(ctx, "OpenshiftLocal-OCP")
-	if err != nil {
-		return err
+	passwordValue := pulumi.ToOutput(r.instancePassword).(pulumi.StringOutput)
+	if r.instancePassword == "" {
+		password, err := util.CreatePassword(ctx, "OpenshiftLocal-OCP")
+		if err != nil {
+			return err
+		}
+		passwordValue = password.Result
 	}
+
 	_, err = setup.SwapKeys(ctx, &publicIP,
 		r.bootingPrivateKeyFilePath, &privateKey.PublicKeyOpenssh)
 	if err != nil {
@@ -157,7 +177,7 @@ func (r createRequest) runFunc(ctx *pulumi.Context) error {
 		setup.Data{
 			PrivateIP:             &internalIP,
 			PublicIP:              &publicIP,
-			Password:              &password.Result,
+			Password:              &passwordValue,
 			OCPPullSecretFilePath: r.ocpPullSecretFilePath,
 		})
 	if err != nil {
@@ -167,6 +187,6 @@ func (r createRequest) runFunc(ctx *pulumi.Context) error {
 	ctx.Export(providerAPI.OutputKey, privateKey.PrivateKeyPem)
 	ctx.Export(providerAPI.OutputHost, publicIP)
 	ctx.Export(providerAPI.OutputUsername, pulumi.String(bundle.ImageUsername))
-	ctx.Export(providerAPI.OutputPassword, password.Result)
+	ctx.Export(providerAPI.OutputPassword, passwordValue)
 	return nil
 }

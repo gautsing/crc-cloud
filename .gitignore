@@ -2,3 +2,4 @@ workdir/
 debug.sh
 out/
 .pulumi/
+crc-cloud.code-workspace

@@ -1,4 +1,6 @@
 #!/bin/bash
+set -x
+
 #CONST
 export KUBECONFIG="/opt/kubeconfig"
 LOG_PATH="/tmp"
@@ -33,7 +35,7 @@ stop_if_failed(){
 	MESSAGE=$2
 	if [[ $EXIT_CODE != 0 ]]
 	then
-		pr_error "$MESSAGE" 
+		pr_error "$MESSAGE"
 		exit $EXIT_CODE
 	fi
 }
@@ -68,7 +70,7 @@ login () {
     pr_info "logging in again to update $KUBECONFIG"
     COUNTER=0
     until `oc login --insecure-skip-tls-verify=true -u kubeadmin -p "$PASS_KUBEADMIN" https://api.crc.testing:6443 > /dev/null 2>&1`
-    do 
+    do
         [ $COUNTER == $MAXIMUM_LOGIN_RETRY ] && stop_if_failed 1 "impossible to login on OpenShift, installation failed."
         pr_info "logging into OpenShift with updated credentials try $COUNTER, hang on...."
         sleep 5
@@ -120,7 +122,7 @@ EOF
     stop_if_failed  $? "failed to modify NetworkManager settings"
     pr_info  "restarting NetworkManager"
     sleep 2
-    systemctl restart NetworkManager 
+    systemctl restart NetworkManager
     stop_if_failed $? "failed to restart NetworkManager"
     pr_info  "enabling & starting Dnsmasq service"
     systemctl enable dnsmasq.service
@@ -140,7 +142,7 @@ check_cluster_unhealthy() {
     WAIT="authentication|console|etcd|ingress|openshift-apiserver"
     [ ! -z $1 ] && WAIT=$1
 
-    until `oc get co > /dev/null 2>&1` 
+    until `oc get co > /dev/null 2>&1`
     do
         pr_info "waiting Openshift API to become healthy, hang on...."
         sleep 2
@@ -148,7 +150,7 @@ check_cluster_unhealthy() {
 
     for i in $(oc get co | grep -P "$WAIT" | awk '{ print $3 }')
     do
-        if [[ $i == "False" ]] 
+        if [[ $i == "False" ]]
         then
             return 0
         fi
@@ -159,7 +161,7 @@ check_cluster_unhealthy() {
 wait_cluster_become_healthy () {
     COUNTER=0
     W="[ALL]"
-    [ ! -z $1 ] && W="[$1]" 
+    [ ! -z $1 ] && W="[$1]"
     while $(check_cluster_unhealthy $1)
     do
         sleep $CLUSTER_HEALTH_SLEEP
@@ -279,11 +281,11 @@ patch_default_route
 
 wait_cluster_become_healthy "authentication|console|etcd|ingress|openshift-apiserver"
 
-until `oc get route console-custom -n openshift-console > /dev/null 2>&1` 
+until `oc get route console-custom -n openshift-console > /dev/null 2>&1`
 do
     pr_info "waiting for console route to become ready, hang on...."
     sleep 2
-done 
+done
 
 CONSOLE_ROUTE=`oc get route console-custom -n openshift-console -o json | jq -r '.spec.host'`
 pr_end $CONSOLE_ROUTE

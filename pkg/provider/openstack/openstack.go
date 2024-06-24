@@ -27,6 +27,8 @@ func (a *Provider) CreateParams() map[string]string {
 		instanceType: instanceTypeDesc,
 		diskSize:     diskSizeDesc,
 		networkName:  networkNameDesc,
+		instanceName:  instanceNameDesc,
+		instancePassword:  instancePasswordDesc,
 	}
 }
 
